@@ -1,0 +1,49 @@
+# Binaries and build outputs
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go test and coverage artifacts
+*.out
+cover.out
+coverage.txt
+coverage.html
+profile.out
+
+# Environment and sensitive configuration
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE and Editor configurations
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Tooling and AI assistants
+.codex/
+.codex
+.gemini/
+*.log
+
+# Dependencies (if vendored locally)
+vendor/
