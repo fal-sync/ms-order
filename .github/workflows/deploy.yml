@@ -1,0 +1,64 @@
+﻿name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      SERVICE_NAME: ms-order
+      CMD_PATH: ./cmd/api
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Compile Linux Binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ${{ env.SERVICE_NAME }} ${{ env.CMD_PATH }}
+
+      - name: Upload Binary to VPS Temp
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "${{ env.SERVICE_NAME }}"
+          target: "/tmp/"
+          overwrite: true
+
+      - name: Stop Old Service, Replace Binary & Start
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # 1. Hentikan service lama secara anggun (graceful stop)
+            systemctl stop falsync-${{ env.SERVICE_NAME }} || true
+            
+            # 2. Pindahkan binary baru ke direktori produksi secara atomic
+            mv -f /tmp/${{ env.SERVICE_NAME }} /opt/falsync/bins/${{ env.SERVICE_NAME }}
+            chmod +x /opt/falsync/bins/${{ env.SERVICE_NAME }}
+            
+            # 3. Jalankan service baru
+            systemctl start falsync-${{ env.SERVICE_NAME }}
+            sleep 2
+            
+            # 4. Verifikasi status service
+            if systemctl is-active --quiet falsync-${{ env.SERVICE_NAME }}; then
+              echo "âœ… Service falsync-${{ env.SERVICE_NAME }} berhasil diperbarui dan berjalan normal!"
+            else
+              echo "âŒ Gagal menjalankan service falsync-${{ env.SERVICE_NAME }}:"
+              journalctl -u falsync-${{ env.SERVICE_NAME }} --no-pager -n 20
+              exit 1
+            fi
