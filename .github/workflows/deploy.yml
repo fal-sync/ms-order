@@ -1,4 +1,4 @@
-﻿name: CI/CD Pipeline
+name: CI/CD Pipeline
 
 on:
   push:
@@ -36,29 +36,22 @@ jobs:
           target: "/tmp/"
           overwrite: true
 
-      - name: Stop Old Service, Replace Binary & Start
+      - name: Stop Old Service, Replace Binary and Start
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # 1. Hentikan service lama secara anggun (graceful stop)
             systemctl stop falsync-${{ env.SERVICE_NAME }} || true
-            
-            # 2. Pindahkan binary baru ke direktori produksi secara atomic
             mv -f /tmp/${{ env.SERVICE_NAME }} /opt/falsync/bins/${{ env.SERVICE_NAME }}
             chmod +x /opt/falsync/bins/${{ env.SERVICE_NAME }}
-            
-            # 3. Jalankan service baru
             systemctl start falsync-${{ env.SERVICE_NAME }}
             sleep 2
-            
-            # 4. Verifikasi status service
             if systemctl is-active --quiet falsync-${{ env.SERVICE_NAME }}; then
-              echo "âœ… Service falsync-${{ env.SERVICE_NAME }} berhasil diperbarui dan berjalan normal!"
+              echo "[OK] Service falsync-${{ env.SERVICE_NAME }} deployed successfully!"
             else
-              echo "âŒ Gagal menjalankan service falsync-${{ env.SERVICE_NAME }}:"
+              echo "[ERROR] Failed to start service falsync-${{ env.SERVICE_NAME }}:"
               journalctl -u falsync-${{ env.SERVICE_NAME }} --no-pager -n 20
               exit 1
             fi
