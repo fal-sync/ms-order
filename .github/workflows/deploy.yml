@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+﻿name: CI/CD Pipeline
 
 on:
   push:
@@ -26,32 +26,42 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ${{ env.SERVICE_NAME }} ${{ env.CMD_PATH }}
 
-      - name: Upload Binary to VPS Temp
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          source: "${{ env.SERVICE_NAME }}"
-          target: "/tmp/"
-          overwrite: true
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload Binary to VPS
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            ${{ env.SERVICE_NAME }} \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/${{ env.SERVICE_NAME }}
 
       - name: Stop Old Service, Replace Binary and Start
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            set -e
             systemctl stop falsync-${{ env.SERVICE_NAME }} || true
             mv -f /tmp/${{ env.SERVICE_NAME }} /opt/falsync/bins/${{ env.SERVICE_NAME }}
             chmod +x /opt/falsync/bins/${{ env.SERVICE_NAME }}
             systemctl start falsync-${{ env.SERVICE_NAME }}
-            sleep 2
+            sleep 3
             if systemctl is-active --quiet falsync-${{ env.SERVICE_NAME }}; then
               echo "[OK] Service falsync-${{ env.SERVICE_NAME }} deployed successfully!"
             else
               echo "[ERROR] Failed to start service falsync-${{ env.SERVICE_NAME }}:"
-              journalctl -u falsync-${{ env.SERVICE_NAME }} --no-pager -n 20
+              journalctl -u falsync-${{ env.SERVICE_NAME }} --no-pager -n 30
               exit 1
             fi
+          ENDSSH
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
