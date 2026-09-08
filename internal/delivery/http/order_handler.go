@@ -25,6 +25,7 @@ type packageRequest struct {
 	DurationCount      int      `json:"duration_count"`
 	DurationUnit       string   `json:"duration_unit"`
 	PriceAmount        int64    `json:"price_amount"`
+	DiscountPercent    int64    `json:"discount_percent"`
 	Currency           string   `json:"currency"`
 	Active             *bool    `json:"active,omitempty"`
 }
@@ -45,10 +46,11 @@ type subscriptionValidationRequest struct {
 }
 
 type activateSubscriptionRequest struct {
-	CompanyID   string     `json:"company_id"`
-	PackageID   string     `json:"package_id"`
-	DurationKey string     `json:"duration_key,omitempty"`
-	StartsAt    *time.Time `json:"starts_at,omitempty"`
+	CompanyID       string     `json:"company_id"`
+	PackageID       string     `json:"package_id"`
+	DurationKey     string     `json:"duration_key,omitempty"`
+	DiscountPercent *int64     `json:"discount_percent,omitempty"`
+	StartsAt        *time.Time `json:"starts_at,omitempty"`
 }
 
 type paymentNotificationRequest struct {
@@ -194,6 +196,11 @@ func (h orderHandler) validateSubscription(w http.ResponseWriter, r *http.Reques
 }
 
 func (h orderHandler) currentSubscription(w http.ResponseWriter, r *http.Request) {
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Is-Super-Admin")), "true") {
+		writeJSON(w, http.StatusOK, usecase.CurrentSubscriptionResult{Active: true})
+		return
+	}
+
 	result, err := h.orderUsecase.GetCurrentSubscription(r.Context(), usecase.CurrentSubscriptionInput{
 		CompanyID: r.Header.Get("X-Company-ID"),
 	})
@@ -217,11 +224,12 @@ func (h orderHandler) activateSubscription(w http.ResponseWriter, r *http.Reques
 		startsAt = request.StartsAt.UTC()
 	}
 	subscription, err := h.orderUsecase.ActivateSubscription(r.Context(), usecase.ActivateSubscriptionInput{
-		CompanyID:   request.CompanyID,
-		PackageID:   request.PackageID,
-		DurationKey: request.DurationKey,
-		ActivatedBy: r.Header.Get("X-User-ID"),
-		StartsAt:    startsAt,
+		CompanyID:       request.CompanyID,
+		PackageID:       request.PackageID,
+		DurationKey:     request.DurationKey,
+		DiscountPercent: request.DiscountPercent,
+		ActivatedBy:     r.Header.Get("X-User-ID"),
+		StartsAt:        startsAt,
 	})
 	if err != nil {
 		writeOrderError(w, err)
@@ -458,6 +466,7 @@ func packageInput(request packageRequest, pathID string) usecase.PackageInput {
 		DurationCount:      request.DurationCount,
 		DurationUnit:       request.DurationUnit,
 		PriceAmount:        request.PriceAmount,
+		DiscountPercent:    request.DiscountPercent,
 		Currency:           request.Currency,
 		Active:             active,
 	}
@@ -482,6 +491,7 @@ func writeOrderError(w http.ResponseWriter, err error) {
 		errors.Is(err, usecase.ErrInvalidPackageDuration),
 		errors.Is(err, usecase.ErrInvalidDurationUnit),
 		errors.Is(err, usecase.ErrInvalidPackagePrice),
+		errors.Is(err, usecase.ErrInvalidDiscountPercent),
 		errors.Is(err, usecase.ErrInvalidSubscriptionTypeID),
 		errors.Is(err, usecase.ErrInvalidCurrency),
 		errors.Is(err, usecase.ErrInvalidGatewayCode),

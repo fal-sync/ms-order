@@ -1,5 +1,3 @@
-// Package usecase implements the core application use cases and business workflows
-// for packages, checkouts, orders, invoices, payments, and subscriptions.
 package usecase
 
 import (
@@ -15,7 +13,6 @@ import (
 	"boilerplate-skeletoncode/internal/usecase/port"
 )
 
-// Common domain validation and processing errors.
 var (
 	ErrInvalidCustomerID         = errors.New("customer_id is required")
 	ErrInvalidCompanyID          = errors.New("company_id is required")
@@ -25,6 +22,7 @@ var (
 	ErrInvalidPackageDuration    = errors.New("package duration must be greater than zero")
 	ErrInvalidDurationUnit       = errors.New("package duration_unit must be one of: day, week, month, year")
 	ErrInvalidPackagePrice       = errors.New("package price_amount must be greater than zero")
+	ErrInvalidDiscountPercent    = errors.New("package discount_percent must be between 0 and 100")
 	ErrInvalidSubscriptionTypeID = errors.New("subscription_type_id must be a valid UUID")
 	ErrInvalidCurrency           = errors.New("package.currency must be a valid 3-letter code")
 	ErrInvalidGatewayCode        = errors.New("gateway_code is required")
@@ -34,7 +32,6 @@ var (
 	ErrPaymentGatewayFailed      = errors.New("payment gateway request failed")
 )
 
-// Supported checkout duration keys.
 const (
 	subscriptionDurationMonthly    = "monthly"
 	subscriptionDurationQuarter    = "quarter"
@@ -42,14 +39,12 @@ const (
 	subscriptionDurationAnnual     = "annual"
 )
 
-// checkoutDurationOption holds duration calculations and discount tier percentages.
 type checkoutDurationOption struct {
 	key             string
 	months          int
 	discountPercent int64
 }
 
-// checkoutDurationOptions defines predefined duration terms and promotional discount rates.
 var checkoutDurationOptions = map[string]checkoutDurationOption{
 	subscriptionDurationMonthly: {
 		key:    subscriptionDurationMonthly,
@@ -72,7 +67,6 @@ var checkoutDurationOptions = map[string]checkoutDurationOption{
 	},
 }
 
-// OrderServiceOptions defines configuration options for initializing OrderService.
 type OrderServiceOptions struct {
 	InvoiceDueDuration         time.Duration
 	SuccessURLTemplate         string
@@ -81,7 +75,6 @@ type OrderServiceOptions struct {
 	SubscriptionTypeRepository domain.SubscriptionTypeRepository
 }
 
-// PackageInput represents data required to create or update a package.
 type PackageInput struct {
 	ID                 string
 	SubscriptionTypeID string
@@ -92,16 +85,15 @@ type PackageInput struct {
 	DurationUnit       string
 	PriceAmount        int64
 	Currency           string
+	DiscountPercent    int64
 	Active             bool
 }
 
-// PackageListInput specifies filtering criteria for listing packages.
 type PackageListInput struct {
 	SubscriptionTypeID string
 	IncludeInactive    bool
 }
 
-// CheckoutInput contains details provided by a client to checkout a package.
 type CheckoutInput struct {
 	CustomerID      string
 	CompanyID       string
@@ -114,7 +106,6 @@ type CheckoutInput struct {
 	Metadata        map[string]string
 }
 
-// PaymentNotificationInput contains webhook callback data from a payment gateway.
 type PaymentNotificationInput struct {
 	OrderID    string
 	PaymentID  string
@@ -122,49 +113,42 @@ type PaymentNotificationInput struct {
 	ExternalID string
 }
 
-// PaymentStatusInput contains parameters to query payment status for an order.
 type PaymentStatusInput struct {
 	CustomerID string
 	OrderID    string
 }
 
-// SubscriptionValidationInput contains the company ID to check active subscription status for.
 type SubscriptionValidationInput struct {
 	CompanyID string
 }
 
-// CurrentSubscriptionInput contains the company ID to query the active subscription for.
 type CurrentSubscriptionInput struct {
 	CompanyID string
 }
 
-// ActivateSubscriptionInput contains parameters for direct superadmin subscription activation.
 type ActivateSubscriptionInput struct {
-	CompanyID   string
-	PackageID   string
-	DurationKey string
-	ActivatedBy string
-	StartsAt    time.Time
+	CompanyID       string
+	PackageID       string
+	DurationKey     string
+	DiscountPercent *int64
+	ActivatedBy     string
+	StartsAt        time.Time
 }
 
-// CurrentSubscriptionResult returns whether a company has an active subscription and its details.
 type CurrentSubscriptionResult struct {
 	Active       bool                 `json:"active"`
 	Subscription *domain.Subscription `json:"subscription,omitempty"`
 }
 
-// CustomerOrderHistoryInput specifies the customer ID for retrieving order history.
 type CustomerOrderHistoryInput struct {
 	CustomerID string
 }
 
-// SubscriptionValidationResult represents the outcome of a subscription validity check.
 type SubscriptionValidationResult struct {
 	Allowed bool
 	Reason  string
 }
 
-// OrderService orchestrates business workflows for packages, orders, payments, and subscriptions.
 type OrderService struct {
 	packageRepository          domain.PackageRepository
 	orderRepository            domain.OrderRepository
@@ -180,7 +164,6 @@ type OrderService struct {
 	notificationURL            string
 }
 
-// NewOrderService constructs a new OrderService instance with the provided repositories and options.
 func NewOrderService(
 	packageRepository domain.PackageRepository,
 	orderRepository domain.OrderRepository,
@@ -208,7 +191,6 @@ func NewOrderService(
 	}
 }
 
-// CreatePackage validates and persists a new subscription package into the repository.
 func (s *OrderService) CreatePackage(ctx context.Context, input PackageInput) (domain.Package, error) {
 	pkg, err := normalizePackage(input)
 	if err != nil {
@@ -226,10 +208,9 @@ func (s *OrderService) CreatePackage(ctx context.Context, input PackageInput) (d
 		return domain.Package{}, err
 	}
 
-	return pkg, nil
+	return withPackageDiscount(pkg), nil
 }
 
-// UpdatePackage validates and updates an existing package in the repository.
 func (s *OrderService) UpdatePackage(ctx context.Context, input PackageInput) (domain.Package, error) {
 	pkg, err := normalizePackage(input)
 	if err != nil {
@@ -251,10 +232,9 @@ func (s *OrderService) UpdatePackage(ctx context.Context, input PackageInput) (d
 		return domain.Package{}, err
 	}
 
-	return pkg, nil
+	return withPackageDiscount(pkg), nil
 }
 
-// DeletePackage removes a package by its ID.
 func (s *OrderService) DeletePackage(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -264,7 +244,6 @@ func (s *OrderService) DeletePackage(ctx context.Context, id string) error {
 	return s.packageRepository.Delete(ctx, id)
 }
 
-// ListSubscriptionTypes retrieves all active master subscription types.
 func (s *OrderService) ListSubscriptionTypes(ctx context.Context) ([]domain.SubscriptionType, error) {
 	if s.subscriptionTypeRepository == nil {
 		return defaultSubscriptionTypes(), nil
@@ -273,7 +252,6 @@ func (s *OrderService) ListSubscriptionTypes(ctx context.Context) ([]domain.Subs
 	return s.subscriptionTypeRepository.ListActive(ctx)
 }
 
-// ListPackages retrieves packages according to the given filter criteria.
 func (s *OrderService) ListPackages(ctx context.Context, input PackageListInput) ([]domain.Package, error) {
 	subscriptionTypeID, err := normalizeSubscriptionTypeID(input.SubscriptionTypeID)
 	if err != nil {
@@ -283,13 +261,19 @@ func (s *OrderService) ListPackages(ctx context.Context, input PackageListInput)
 		return nil, err
 	}
 
-	return s.packageRepository.List(ctx, domain.PackageFilter{
+	packages, err := s.packageRepository.List(ctx, domain.PackageFilter{
 		SubscriptionTypeID: subscriptionTypeID,
 		IncludeInactive:    input.IncludeInactive,
 	})
+	if err != nil {
+		return nil, err
+	}
+	for i := range packages {
+		packages[i] = withPackageDiscount(packages[i])
+	}
+	return packages, nil
 }
 
-// ListActivePackages retrieves all active packages belonging to the default subscription package type.
 func (s *OrderService) ListActivePackages(ctx context.Context) ([]domain.Package, error) {
 	return s.ListPackages(ctx, PackageListInput{
 		SubscriptionTypeID: domain.SubscriptionTypePackageID,
@@ -315,9 +299,6 @@ func (s *OrderService) ensureSubscriptionType(ctx context.Context, id string) (d
 	return domain.SubscriptionType{}, domain.ErrSubscriptionTypeNotFound
 }
 
-// Checkout initiates an order checkout for a package, computes duration and promotional
-// discounts, creates pending order and invoice records, and initiates the payment request
-// with the payment gateway.
 func (s *OrderService) Checkout(ctx context.Context, input CheckoutInput) (domain.Order, error) {
 	customerID := strings.TrimSpace(input.CustomerID)
 	if customerID == "" {
@@ -452,8 +433,6 @@ func (s *OrderService) Checkout(ctx context.Context, input CheckoutInput) (domai
 	return order, nil
 }
 
-// NotifyPayment handles asynchronous webhook callbacks from payment gateways,
-// updating payment/order statuses and provisioning or extending subscriptions upon successful payment.
 func (s *OrderService) NotifyPayment(ctx context.Context, input PaymentNotificationInput) (domain.Order, error) {
 	status, err := parsePaymentStatus(input.Status)
 	if err != nil {
@@ -468,7 +447,6 @@ func (s *OrderService) NotifyPayment(ctx context.Context, input PaymentNotificat
 	return s.applyPaymentUpdate(ctx, order, input.PaymentID, input.ExternalID, status, nil)
 }
 
-// CheckPayment queries the payment gateway to synchronize the latest payment status for an order.
 func (s *OrderService) CheckPayment(ctx context.Context, input PaymentStatusInput) (domain.Order, error) {
 	customerID := strings.TrimSpace(input.CustomerID)
 	if customerID == "" {
@@ -600,7 +578,6 @@ func paymentUpdateChanged(order domain.Order, payment port.SyncPaymentResult, st
 	return false
 }
 
-// ValidateSubscription checks whether a company currently holds an active, non-expired subscription.
 func (s *OrderService) ValidateSubscription(ctx context.Context, input SubscriptionValidationInput) (SubscriptionValidationResult, error) {
 	companyID := strings.TrimSpace(input.CompanyID)
 	if companyID == "" {
@@ -621,7 +598,6 @@ func (s *OrderService) ValidateSubscription(ctx context.Context, input Subscript
 	return SubscriptionValidationResult{Allowed: true}, nil
 }
 
-// GetCurrentSubscription returns the active subscription for a given company if one exists.
 func (s *OrderService) GetCurrentSubscription(ctx context.Context, input CurrentSubscriptionInput) (CurrentSubscriptionResult, error) {
 	companyID := strings.TrimSpace(input.CompanyID)
 	if companyID == "" {
@@ -643,8 +619,6 @@ func (s *OrderService) GetCurrentSubscription(ctx context.Context, input Current
 	}, nil
 }
 
-// ActivateSubscription provides direct manual subscription activation without checkout,
-// typically used by administrators for manual customer provisioning or support.
 func (s *OrderService) ActivateSubscription(ctx context.Context, input ActivateSubscriptionInput) (domain.Subscription, error) {
 	companyID := strings.TrimSpace(input.CompanyID)
 	if companyID == "" {
@@ -680,6 +654,21 @@ func (s *OrderService) ActivateSubscription(ctx context.Context, input ActivateS
 		if err != nil {
 			return domain.Subscription{}, err
 		}
+	} else if pkg.DiscountPercent > 0 {
+		discountAmount := roundDivide(packageSnapshot.PriceAmount*pkg.DiscountPercent, 100)
+		packageSnapshot.PriceAmount = packageSnapshot.PriceAmount - discountAmount
+	}
+
+	if input.DiscountPercent != nil {
+		discount := *input.DiscountPercent
+		if discount < 0 {
+			discount = 0
+		}
+		if discount > 100 {
+			discount = 100
+		}
+		discountAmount := roundDivide(packageSnapshot.PriceAmount*discount, 100)
+		packageSnapshot.PriceAmount = packageSnapshot.PriceAmount - discountAmount
 	}
 
 	startsAt := input.StartsAt.UTC()
@@ -708,7 +697,6 @@ func (s *OrderService) ActivateSubscription(ctx context.Context, input ActivateS
 	return subscription, nil
 }
 
-// ListCustomerOrders returns all orders associated with a customer ID.
 func (s *OrderService) ListCustomerOrders(ctx context.Context, input CustomerOrderHistoryInput) ([]domain.Order, error) {
 	customerID := strings.TrimSpace(input.CustomerID)
 	if customerID == "" {
@@ -860,6 +848,10 @@ func normalizePackage(input PackageInput) (domain.Package, error) {
 		return domain.Package{}, ErrInvalidCurrency
 	}
 
+	if input.DiscountPercent < 0 || input.DiscountPercent > 100 {
+		return domain.Package{}, ErrInvalidDiscountPercent
+	}
+
 	return domain.Package{
 		ID:                 packageID,
 		SubscriptionTypeID: subscriptionTypeID,
@@ -869,6 +861,7 @@ func normalizePackage(input PackageInput) (domain.Package, error) {
 		DurationCount:      input.DurationCount,
 		DurationUnit:       durationUnit,
 		PriceAmount:        input.PriceAmount,
+		DiscountPercent:    input.DiscountPercent,
 		Currency:           currency,
 		Active:             input.Active,
 	}, nil
@@ -928,13 +921,25 @@ func checkoutPrice(pkg domain.Package, option checkoutDurationOption) (int64, in
 	}
 
 	priceBeforeDiscount := roundDivide(pkg.PriceAmount*int64(option.months), int64(baseMonths))
-	discountAmount := roundDivide(priceBeforeDiscount*option.discountPercent, 100)
-	finalPrice := priceBeforeDiscount - discountAmount
+	packageDiscount := roundDivide(priceBeforeDiscount*pkg.DiscountPercent, 100)
+	priceAfterPackageDiscount := priceBeforeDiscount - packageDiscount
+	durationDiscount := roundDivide(priceAfterPackageDiscount*option.discountPercent, 100)
+	discountAmount := packageDiscount + durationDiscount
+	finalPrice := priceAfterPackageDiscount - durationDiscount
 	if finalPrice <= 0 {
 		return 0, 0, 0, ErrInvalidPackagePrice
 	}
 
 	return priceBeforeDiscount, discountAmount, finalPrice, nil
+}
+
+func withPackageDiscount(pkg domain.Package) domain.Package {
+	pkg.DiscountAmount = roundDivide(pkg.PriceAmount*pkg.DiscountPercent, 100)
+	pkg.FinalPriceAmount = pkg.PriceAmount - pkg.DiscountAmount
+	if pkg.FinalPriceAmount < 0 {
+		pkg.FinalPriceAmount = 0
+	}
+	return pkg
 }
 
 func packageDurationMonths(durationCount int, durationUnit domain.SubscriptionDurationUnit) (int, error) {

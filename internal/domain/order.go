@@ -1,5 +1,3 @@
-// Package domain defines core entities, value objects, and repository contracts
-// for packages, orders, invoices, payments, and subscriptions.
 package domain
 
 import (
@@ -8,7 +6,6 @@ import (
 	"time"
 )
 
-// Common domain errors.
 var (
 	ErrPackageNotFound          = errors.New("package not found")
 	ErrPackageAlreadyExists     = errors.New("package already exists")
@@ -18,17 +15,14 @@ var (
 	ErrSubscriptionTypeNotFound = errors.New("subscription type not found")
 )
 
-// Well-known UUID constants for master subscription types.
 const (
 	SubscriptionTypePackageID            = "8b7d8f9f-3b0a-4c89-a4d4-452ce5d763e1"
 	SubscriptionTypeAdditionalFeaturesID = "be4e1df3-8f1e-4817-9815-94e37d4ef894"
 	SubscriptionTypeESealDocumentID      = "02e58b8c-6420-4424-88e7-248db7f99079"
 )
 
-// OrderStatus defines the life-cycle state of an order.
 type OrderStatus string
 
-// Supported order status values.
 const (
 	OrderStatusPendingPayment OrderStatus = "pending_payment"
 	OrderStatusPaid           OrderStatus = "paid"
@@ -37,10 +31,8 @@ const (
 	OrderStatusExpired        OrderStatus = "expired"
 )
 
-// PaymentStatus defines the state of a payment transaction.
 type PaymentStatus string
 
-// Supported payment status values.
 const (
 	PaymentStatusPending PaymentStatus = "pending"
 	PaymentStatusPaid    PaymentStatus = "paid"
@@ -48,10 +40,8 @@ const (
 	PaymentStatusExpired PaymentStatus = "expired"
 )
 
-// SubscriptionDurationUnit defines time measurement units for subscription validity periods.
 type SubscriptionDurationUnit string
 
-// Supported subscription duration unit values.
 const (
 	SubscriptionDurationDay   SubscriptionDurationUnit = "day"
 	SubscriptionDurationWeek  SubscriptionDurationUnit = "week"
@@ -59,7 +49,6 @@ const (
 	SubscriptionDurationYear  SubscriptionDurationUnit = "year"
 )
 
-// PackageSnapshot represents an immutable snapshot of package terms at the time an order is placed.
 type PackageSnapshot struct {
 	ID                 string                   `json:"id" bson:"id"`
 	SubscriptionTypeID string                   `json:"subscription_type_id" bson:"subscription_type_id"`
@@ -72,7 +61,6 @@ type PackageSnapshot struct {
 	Currency           string                   `json:"currency" bson:"currency"`
 }
 
-// Package represents a purchasable plan or tier with its pricing and duration details.
 type Package struct {
 	ID                 string                   `json:"id" bson:"_id"`
 	SubscriptionTypeID string                   `json:"subscription_type_id" bson:"subscription_type_id"`
@@ -82,13 +70,15 @@ type Package struct {
 	DurationCount      int                      `json:"duration_count" bson:"duration_count"`
 	DurationUnit       SubscriptionDurationUnit `json:"duration_unit" bson:"duration_unit"`
 	PriceAmount        int64                    `json:"price_amount" bson:"price_amount"`
+	DiscountPercent    int64                    `json:"discount_percent" bson:"discount_percent"`
+	DiscountAmount     int64                    `json:"discount_amount" bson:"-"`
+	FinalPriceAmount   int64                    `json:"final_price_amount" bson:"-"`
 	Currency           string                   `json:"currency" bson:"currency"`
 	Active             bool                     `json:"active" bson:"active"`
 	CreatedAt          time.Time                `json:"created_at" bson:"created_at"`
 	UpdatedAt          time.Time                `json:"updated_at" bson:"updated_at"`
 }
 
-// SubscriptionType categorizes packages (e.g., Subscription Package, Additional Features, E-Seal Document).
 type SubscriptionType struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name"`
@@ -97,13 +87,11 @@ type SubscriptionType struct {
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
-// PackageFilter encapsulates filter arguments for listing packages.
 type PackageFilter struct {
 	SubscriptionTypeID string
 	IncludeInactive    bool
 }
 
-// SubscriptionPeriod denotes the active duration range of a subscription.
 type SubscriptionPeriod struct {
 	StartsAt      time.Time                `json:"starts_at" bson:"starts_at"`
 	EndsAt        time.Time                `json:"ends_at" bson:"ends_at"`
@@ -111,7 +99,6 @@ type SubscriptionPeriod struct {
 	DurationUnit  SubscriptionDurationUnit `json:"duration_unit" bson:"duration_unit"`
 }
 
-// InvoiceItem represents a line item in an order invoice.
 type InvoiceItem struct {
 	Description string `json:"description" bson:"description"`
 	Quantity    int    `json:"quantity" bson:"quantity"`
@@ -119,7 +106,6 @@ type InvoiceItem struct {
 	TotalAmount int64  `json:"total_amount" bson:"total_amount"`
 }
 
-// Invoice represents billing data and payment schedule for an order.
 type Invoice struct {
 	ID             string        `json:"id" bson:"id"`
 	Number         string        `json:"number" bson:"number"`
@@ -132,7 +118,6 @@ type Invoice struct {
 	Items          []InvoiceItem `json:"items" bson:"items"`
 }
 
-// PaymentInfo holds transaction metadata received from the payment gateway.
 type PaymentInfo struct {
 	PaymentID     string            `json:"payment_id,omitempty" bson:"payment_id,omitempty"`
 	GatewayCode   string            `json:"gateway_code,omitempty" bson:"gateway_code,omitempty"`
@@ -145,7 +130,6 @@ type PaymentInfo struct {
 	UpdatedAt     time.Time         `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
 }
 
-// Order represents an order placed by a customer for a subscription package.
 type Order struct {
 	ID           string             `json:"id" bson:"_id"`
 	CustomerID   string             `json:"customer_id" bson:"customer_id"`
@@ -160,7 +144,6 @@ type Order struct {
 	UpdatedAt    time.Time          `json:"updated_at" bson:"updated_at"`
 }
 
-// Subscription represents an active or past company entitlement period.
 type Subscription struct {
 	ID               string             `json:"id" bson:"_id"`
 	CompanyID        string             `json:"company_id" bson:"company_id"`
@@ -175,7 +158,6 @@ type Subscription struct {
 	UpdatedAt        time.Time          `json:"updated_at" bson:"updated_at"`
 }
 
-// PackageRepository defines storage operations for packages.
 type PackageRepository interface {
 	Create(ctx context.Context, pkg Package) error
 	Update(ctx context.Context, pkg Package) error
@@ -185,13 +167,11 @@ type PackageRepository interface {
 	ListActive(ctx context.Context) ([]Package, error)
 }
 
-// SubscriptionTypeRepository defines read operations for master subscription types.
 type SubscriptionTypeRepository interface {
 	GetByID(ctx context.Context, id string) (SubscriptionType, error)
 	ListActive(ctx context.Context) ([]SubscriptionType, error)
 }
 
-// OrderRepository defines persistence operations for customer orders.
 type OrderRepository interface {
 	Create(ctx context.Context, order Order) error
 	Update(ctx context.Context, order Order) error
@@ -201,7 +181,6 @@ type OrderRepository interface {
 	ListByCustomerID(ctx context.Context, customerID string) ([]Order, error)
 }
 
-// SubscriptionRepository defines persistence operations for company subscriptions.
 type SubscriptionRepository interface {
 	GetActiveByCompanyID(ctx context.Context, companyID string, at time.Time) (Subscription, error)
 	UpsertByCompanyID(ctx context.Context, subscription Subscription) error
